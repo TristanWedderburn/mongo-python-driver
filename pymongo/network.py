@@ -151,8 +151,17 @@ def command(
         flags |= _OpMsg.EXHAUST_ALLOWED if exhaust_allowed else 0
         # Note: changing to use OP_ENCRYPTED
         request_id, msg, size, max_doc_size = message._op_msg(
-            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg=True
+            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx
         )
+
+        print("UNENCRYPTED OP_MSG\n", msg) 
+
+        request_id2, msg2, size2, max_doc_size2 = message._op_msg(
+            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = True
+        )
+
+        print("ENCRYPTED OP_MSG\n", msg2) 
+
         # If this is an unacknowledged write then make sure the encoded doc(s)
         # are small enough, otherwise rely on the server to return an error.
         if unacknowledged and max_bson_size is not None and max_doc_size > max_bson_size:
