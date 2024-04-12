@@ -570,6 +570,7 @@ class Collection(common.BaseObject, Generic[_DocumentType]):
         bypass_doc_val: bool,
         session: Optional[ClientSession],
         comment: Optional[Any] = None,
+        should_encrypt_op_msg: bool = True
     ) -> Any:
         """Internal helper for inserting a single document."""
         write_concern = write_concern or self.write_concern
@@ -592,6 +593,7 @@ class Collection(common.BaseObject, Generic[_DocumentType]):
                 session=session,
                 client=self.__database.client,
                 retryable_write=retryable_write,
+                should_encrypt_op_msg=should_encrypt_op_msg
             )
 
             _check_write_command_response(result)
@@ -610,6 +612,7 @@ class Collection(common.BaseObject, Generic[_DocumentType]):
         bypass_document_validation: bool = False,
         session: Optional[ClientSession] = None,
         comment: Optional[Any] = None,
+        should_encrypt_op_msg: bool = False,
     ) -> InsertOneResult:
         """Insert a single document.
 
@@ -664,6 +667,7 @@ class Collection(common.BaseObject, Generic[_DocumentType]):
                 bypass_doc_val=bypass_document_validation,
                 session=session,
                 comment=comment,
+                should_encrypt_op_msg=should_encrypt_op_msg
             ),
             write_concern.acknowledged,
         )

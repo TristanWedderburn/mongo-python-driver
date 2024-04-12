@@ -80,6 +80,7 @@ def command(
     parse_write_concern_error: bool = False,
     collation: Optional[_CollationIn] = None,
     compression_ctx: Union[SnappyContext, ZlibContext, ZstdContext, None] = None,
+    should_encrypt_op_msg: bool = False,
     use_op_msg: bool = False,
     unacknowledged: bool = False,
     user_fields: Optional[Mapping[str, Any]] = None,
@@ -151,16 +152,10 @@ def command(
         flags |= _OpMsg.EXHAUST_ALLOWED if exhaust_allowed else 0
         # Note: changing to use OP_ENCRYPTED
         request_id, msg, size, max_doc_size = message._op_msg(
-            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx
+            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = should_encrypt_op_msg
         )
 
-        print("UNENCRYPTED OP_MSG\n", msg) 
-
-        request_id2, msg2, size2, max_doc_size2 = message._op_msg(
-            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = True
-        )
-
-        print("ENCRYPTED OP_MSG\n", msg2) 
+        print("OP_MSG\n", msg) 
 
         # If this is an unacknowledged write then make sure the encoded doc(s)
         # are small enough, otherwise rely on the server to return an error.
@@ -203,7 +198,6 @@ def command(
         )
 
     try:
-        print("ENCRYPTED MSG", msg)
         conn.conn.sendall(msg)
         if use_op_msg and unacknowledged:
             # Unacknowledged, fake a successful command response.
