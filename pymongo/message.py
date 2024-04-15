@@ -725,12 +725,13 @@ def _op_msg_encrypted(
     identifier: str,
     docs: Optional[list[Mapping[str, Any]]],
     opts: CodecOptions,
+    original_operation: int,
     # TODO<TW>: param for encryption settings
 ) -> tuple[int, bytes, int, int]:
     """Internal encrypted OP_MSG message helper."""
     msg, total_size, max_bson_size = _op_msg_no_header(flags, command, identifier, docs, opts)
     # Note: 2014 is new opcode
-    rid, msg = _encrypt_op_msg(2014, msg)
+    rid, msg = _encrypt_op_msg(original_operation, msg)
     return rid, msg, total_size, max_bson_size
 
 
@@ -791,7 +792,8 @@ def _op_msg(
     try:
         if should_encrypt_op_msg:
             print("USING OP_ENCRYPTED")
-            return _op_msg_encrypted(flags, command, identifier, docs, opts)
+            # Note: pass in original op_code
+            return _op_msg_encrypted(flags, command, identifier, docs, opts, 2012 if ctx else 2013)
         elif ctx:
             return _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
         return _op_msg_uncompressed(flags, command, identifier, docs, opts)

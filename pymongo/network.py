@@ -157,6 +157,10 @@ def command(
 
         print("OP_MSG\n", msg) 
 
+        # Helper to verify serialization
+        if should_encrypt_op_msg:
+            opEncryptedHelper(msg)
+
         # If this is an unacknowledged write then make sure the encoded doc(s)
         # are small enough, otherwise rely on the server to return an error.
         if unacknowledged and max_bson_size is not None and max_doc_size > max_bson_size:
@@ -308,6 +312,22 @@ def command(
 
 _UNPACK_COMPRESSION_HEADER = struct.Struct("<iiB").unpack
 _UNPACK_ENCRYPTION_HEADER = struct.Struct("<iiB").unpack
+
+
+def opEncryptedHelper(data: bytes):
+    print("START opEncryptedHelper\n")
+
+    length, _, response_to, op_code = _UNPACK_HEADER(data[0:16])
+    print("Helper found wrapper op_code\n", op_code)
+
+    original_op_code, _, encryption_key_id = _UNPACK_ENCRYPTION_HEADER(data[16:25])
+
+    print("Helper found original opcode and encryption key id\n",  original_op_code, encryption_key_id)
+
+    inner_data = data[25:length]
+
+    print("Helper found inner data\n", inner_data)
+    print("END opEncryptedHelper\n")
 
 
 def receive_message(
