@@ -205,14 +205,17 @@ def command(
             response_doc: _DocumentOut = {"ok": 1}
         else:
             reply = receive_message(conn, request_id)
+            print("reply\n", reply)
             conn.more_to_come = reply.more_to_come
             unpacked_docs = reply.unpack_response(
                 codec_options=codec_options, user_fields=user_fields
             )
 
             response_doc = unpacked_docs[0]
+            print("response doc\n", response_doc)
             if client:
                 client._process_response(response_doc, session)
+                print("response doc after process response\n", response_doc)
             if check:
                 helpers._check_command_response(
                     response_doc,
@@ -304,6 +307,7 @@ def command(
 
 
 _UNPACK_COMPRESSION_HEADER = struct.Struct("<iiB").unpack
+_UNPACK_ENCRYPTION_HEADER = struct.Struct("<iiB").unpack
 
 
 def receive_message(
@@ -320,6 +324,7 @@ def receive_message(
             deadline = None
     # Ignore the response's request id.
     length, _, response_to, op_code = _UNPACK_HEADER(_receive_data_on_socket(conn, 16, deadline))
+    print("Found op_code in response\n", op_code, response_to)
     # No request_id for exhaust cursor "getMore".
     if request_id is not None:
         if request_id != response_to:
@@ -333,20 +338,33 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-    if op_code == 2012:
+    if op_code == 2014: # OP_ENCRYPTED
+        print("Processing OP_ENCRYPTED response")
+        op_code, _, encryption_key_id = _UNPACK_COMPRESSION_HEADER(
+            _receive_data_on_socket(conn, 9, deadline)
+        )
+        # TODO<TW>: Call decryption logic
+        # data = decrypt(_receive_data_on_socket(conn, length - 25, deadline), encryption_key_id)
+
+        # Note: return unencrypted data for poc
+        data = _receive_data_on_socket(conn, length - 25, deadline)
+    elif op_code == 2012: # OP_COMPRESSED
         op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
             _receive_data_on_socket(conn, 9, deadline)
         )
         data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
+   
     else:
         data = _receive_data_on_socket(conn, length - 16, deadline)
 
+    print("data from response flow", data)
     try:
         unpack_reply = _UNPACK_REPLY[op_code]
     except KeyError:
         raise ProtocolError(
             f"Got opcode {op_code!r} but expected {_UNPACK_REPLY.keys()!r}"
         ) from None
+    print("unpack reply", unpack_reply(data))
     return unpack_reply(data)
 
 
