@@ -209,17 +209,14 @@ def command(
             response_doc: _DocumentOut = {"ok": 1}
         else:
             reply = receive_message(conn, request_id)
-            print("reply\n", reply)
             conn.more_to_come = reply.more_to_come
             unpacked_docs = reply.unpack_response(
                 codec_options=codec_options, user_fields=user_fields
             )
 
             response_doc = unpacked_docs[0]
-            print("response doc\n", response_doc)
             if client:
                 client._process_response(response_doc, session)
-                print("response doc after process response\n", response_doc)
             if check:
                 helpers._check_command_response(
                     response_doc,
@@ -358,8 +355,8 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-    if op_code == 2014: # OP_ENCRYPTED
-        print("Processing OP_ENCRYPTED response")
+    # elif op_code == 2014: # OP_ENCRYPTED
+    if op_code == 2012:
         op_code, _, encryption_key_id = _UNPACK_COMPRESSION_HEADER(
             _receive_data_on_socket(conn, 9, deadline)
         )
@@ -373,18 +370,15 @@ def receive_message(
             _receive_data_on_socket(conn, 9, deadline)
         )
         data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
-   
     else:
         data = _receive_data_on_socket(conn, length - 16, deadline)
 
-    print("data from response flow", data)
     try:
         unpack_reply = _UNPACK_REPLY[op_code]
     except KeyError:
         raise ProtocolError(
             f"Got opcode {op_code!r} but expected {_UNPACK_REPLY.keys()!r}"
         ) from None
-    print("unpack reply", unpack_reply(data))
     return unpack_reply(data)
 
 
