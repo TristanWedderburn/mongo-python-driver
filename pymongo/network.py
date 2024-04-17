@@ -59,6 +59,8 @@ if TYPE_CHECKING:
     from pymongo.typings import _Address, _CollationIn, _DocumentOut, _DocumentType
     from pymongo.write_concern import WriteConcern
 
+from pymongocrypt.crypto import aes_256_ctr_decrypt, aes_256_ctr_encrypt
+
 _UNPACK_HEADER = struct.Struct("<iiii").unpack
 
 
@@ -308,7 +310,7 @@ def command(
 
 
 _UNPACK_COMPRESSION_HEADER = struct.Struct("<iiB").unpack
-_UNPACK_ENCRYPTION_HEADER = struct.Struct("<iiB").unpack
+_UNPACK_ENCRYPTION_HEADER = struct.Struct("<ii").unpack
 
 
 def opEncryptedHelper(data: bytes):
@@ -356,11 +358,22 @@ def receive_message(
             f"message size ({max_message_size!r})"
         )
     if op_code == 2014: # OP_ENCRYPTED
-        op_code, _, encryption_key_id = _UNPACK_COMPRESSION_HEADER(
-            _receive_data_on_socket(conn, 9, deadline)
+        op_code, _ = _UNPACK_ENCRYPTION_HEADER(
+            _receive_data_on_socket(conn, 8, deadline)
         )
-        # TODO<TW>: Call decryption logic
-        data = _receive_data_on_socket(conn, length - 25, deadline)
+        input_buffer = _receive_data_on_socket(conn, length - 24, deadline)
+
+        encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02')
+        iv = MongoCryptBinaryIn()
+        input_data = MongoCryptBinaryIn(input_buffer)
+        output_data = MongoCryptBinaryIn(b'1' * len(input_buffer))
+        bytes_written = ffi.new("uint32_t *")
+        status = lib.mongocrypt_status_new()
+
+        aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
+
+        data = output_data.to_bytes()
+        print("DECRYPTION OUTPUT\n", encrypted_data)
     elif op_code == 2012: # OP_COMPRESSED
         op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
             _receive_data_on_socket(conn, 9, deadline)

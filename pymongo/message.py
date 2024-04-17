@@ -653,8 +653,8 @@ def _compress(
     return request_id, header + compressed
 
 
-_pack_encrypted_op_msg_header = struct.Struct("<iiiiiiB").pack
-_ENCRYPTION_HEADER_SIZE = 25
+_pack_encrypted_op_msg_header = struct.Struct("<iiiiii").pack
+_ENCRYPTION_HEADER_SIZE = 24
 
 def _encrypt_op_msg(
     operation: int, data: bytes, 
@@ -663,8 +663,8 @@ def _encrypt_op_msg(
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     print("Attempting to encrypt data\n", data)
 
-    encryption_key = MongoCryptBinaryIn(os.urandom(24))
-    iv = MongoCryptBinaryIn(os.urandom(16))
+    encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02')
+    iv = MongoCryptBinaryIn()
     input_data = MongoCryptBinaryIn(data)
     output_data = MongoCryptBinaryIn(b'1' * len(data))
     bytes_written = ffi.new("uint32_t *")
@@ -672,7 +672,7 @@ def _encrypt_op_msg(
 
     aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
-    encrypted_data = output.to_bytes()
+    encrypted_data = output_data.to_bytes()
     print("ENCRYPTION OUTPUT\n", encrypted_data)
 
     request_id = _randint()
@@ -684,7 +684,6 @@ def _encrypt_op_msg(
         2014,  # operation id
         operation,  # original operation id
         len(encrypted_data),  # uncompressed message length
-        4, # encryption key id
     )
     return request_id, header + encrypted_data
 
