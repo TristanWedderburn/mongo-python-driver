@@ -355,8 +355,7 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-    # elif op_code == 2014: # OP_ENCRYPTED
-    if op_code == 2012:
+    if op_code == 2014: # OP_ENCRYPTED
         op_code, _, encryption_key_id = _UNPACK_COMPRESSION_HEADER(
             _receive_data_on_socket(conn, 9, deadline)
         )
