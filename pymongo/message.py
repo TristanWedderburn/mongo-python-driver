@@ -51,6 +51,10 @@ from bson.raw_bson import (
 try:
     from pymongo import _cmessage  # type: ignore[attr-defined]
 
+    from pymongocrypt.binary import MongoCryptBinaryIn, MongoCryptBinaryOut, _to_bytes, _write_bytes
+    from pymongocrypt.binding import ffi, lib
+    from pymongocrypt.crypto import aes_256_ctr_decrypt, aes_256_ctr_encrypt
+    import os
     _use_c = True
 except ImportError:
     _use_c = False
@@ -653,22 +657,36 @@ _pack_encrypted_op_msg_header = struct.Struct("<iiiiiiB").pack
 _ENCRYPTION_HEADER_SIZE = 25
 
 def _encrypt_op_msg(
-    operation: int, data: bytes, # TODO<TW>: encryption param
+    operation: int, data: bytes, 
+    # TODO<TW>: encryption param
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
-    encrypted = data
+    print("Attempting to encrypt data\n", data)
+
+    encryption_key = MongoCryptBinaryIn(os.urandom(24))
+    iv = MongoCryptBinaryIn(os.urandom(16))
+    input_data = MongoCryptBinaryIn(data)
+    output_data = MongoCryptBinaryIn(b'1' * len(data))
+    bytes_written = ffi.new("uint32_t *")
+    status = lib.mongocrypt_status_new()
+
+    aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
+
+    encrypted_data = output.to_bytes()
+    print("ENCRYPTION OUTPUT\n", encrypted_data)
+
     request_id = _randint()
 
     header = _pack_encrypted_op_msg_header(
-        _ENCRYPTION_HEADER_SIZE + len(encrypted),  # Total message length
+        _ENCRYPTION_HEADER_SIZE + len(encrypted_data),  # Total message length
         request_id,  # Request id
         0,  # responseTo
         2014,  # operation id
         operation,  # original operation id
-        len(data),  # uncompressed message length
+        len(encrypted_data),  # uncompressed message length
         4, # encryption key id
     )
-    return request_id, header + encrypted
+    return request_id, header + encrypted_data
 
 _pack_header = struct.Struct("<iiii").pack
 

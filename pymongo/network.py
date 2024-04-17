@@ -360,9 +360,6 @@ def receive_message(
             _receive_data_on_socket(conn, 9, deadline)
         )
         # TODO<TW>: Call decryption logic
-        # data = decrypt(_receive_data_on_socket(conn, length - 25, deadline), encryption_key_id)
-
-        # Note: return unencrypted data for poc
         data = _receive_data_on_socket(conn, length - 25, deadline)
     elif op_code == 2012: # OP_COMPRESSED
         op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
