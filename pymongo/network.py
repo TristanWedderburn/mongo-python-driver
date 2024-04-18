@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from pymongo.typings import _Address, _CollationIn, _DocumentOut, _DocumentType
     from pymongo.write_concern import WriteConcern
 
-from pymongocrypt.crypto import aes_256_ctr_decrypt, aes_256_ctr_encrypt
+from pymongocrypt.crypto import aes_256_ctr_decrypt
 
 _UNPACK_HEADER = struct.Struct("<iiii").unpack
 
@@ -152,12 +152,11 @@ def command(
     if use_op_msg:
         flags = _OpMsg.MORE_TO_COME if unacknowledged else 0
         flags |= _OpMsg.EXHAUST_ALLOWED if exhaust_allowed else 0
-        # Note: changing to use OP_ENCRYPTED
         request_id, msg, size, max_doc_size = message._op_msg(
             flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = should_encrypt_op_msg
         )
 
-        print("OP_MSG\n", msg) 
+        print("msg to send\n", msg) 
 
         # Helper to verify serialization
         if should_encrypt_op_msg:
@@ -210,16 +209,22 @@ def command(
             reply = None
             response_doc: _DocumentOut = {"ok": 1}
         else:
+            print("receive_message\n")
             reply = receive_message(conn, request_id)
+            print("reply\n", reply)
             conn.more_to_come = reply.more_to_come
             unpacked_docs = reply.unpack_response(
                 codec_options=codec_options, user_fields=user_fields
             )
+            print("unpacked_docs\n", unpacked_docs)
 
             response_doc = unpacked_docs[0]
+            print("response_doc\n", response_doc)
             if client:
+                print("client seen\n")
                 client._process_response(response_doc, session)
             if check:
+                print("check?\n")
                 helpers._check_command_response(
                     response_doc,
                     conn.max_wire_version,
@@ -343,7 +348,7 @@ def receive_message(
             deadline = None
     # Ignore the response's request id.
     length, _, response_to, op_code = _UNPACK_HEADER(_receive_data_on_socket(conn, 16, deadline))
-    print("Found op_code in response\n", op_code, response_to)
+    print("Found op_code in response\n", op_code)
     # No request_id for exhaust cursor "getMore".
     if request_id is not None:
         if request_id != response_to:
@@ -357,13 +362,18 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-    if op_code == 2014: # OP_ENCRYPTED
+    if op_code == 2012:
+        op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
+            _receive_data_on_socket(conn, 9, deadline)
+        )
+        data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
+    elif op_code == 2014:
         op_code, _ = _UNPACK_ENCRYPTION_HEADER(
             _receive_data_on_socket(conn, 8, deadline)
         )
         input_buffer = _receive_data_on_socket(conn, length - 24, deadline)
 
-        encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02')
+        encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
         iv = MongoCryptBinaryIn()
         input_data = MongoCryptBinaryIn(input_buffer)
         output_data = MongoCryptBinaryIn(b'1' * len(input_buffer))
@@ -374,11 +384,6 @@ def receive_message(
 
         data = output_data.to_bytes()
         print("DECRYPTION OUTPUT\n", encrypted_data)
-    elif op_code == 2012: # OP_COMPRESSED
-        op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
-            _receive_data_on_socket(conn, 9, deadline)
-        )
-        data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
     else:
         data = _receive_data_on_socket(conn, length - 16, deadline)
 
@@ -437,6 +442,7 @@ def _receive_data_on_socket(conn: Connection, length: int, deadline: Optional[fl
     bytes_read = 0
     while bytes_read < length:
         try:
+            print("waiting for read\n", bytes_read, length)
             wait_for_read(conn, deadline)
             # CSOT: Update timeout. When the timeout has expired perform one
             # final non-blocking recv. This helps avoid spurious timeouts when
@@ -445,12 +451,15 @@ def _receive_data_on_socket(conn: Connection, length: int, deadline: Optional[fl
                 conn.set_conn_timeout(max(deadline - time.monotonic(), 0))
             chunk_length = conn.conn.recv_into(mv[bytes_read:])
         except BLOCKING_IO_ERRORS:
+            print("blocking io\n")
             raise socket.timeout("timed out") from None
         except OSError as exc:
+            print("os error\n", exc)
             if _errno_from_exception(exc) == errno.EINTR:
                 continue
             raise
         if chunk_length == 0:
+            print("chunk is 0\n")
             raise OSError("connection closed")
 
         bytes_read += chunk_length

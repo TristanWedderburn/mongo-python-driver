@@ -50,10 +50,9 @@ from bson.raw_bson import (
 
 try:
     from pymongo import _cmessage  # type: ignore[attr-defined]
-
-    from pymongocrypt.binary import MongoCryptBinaryIn, MongoCryptBinaryOut, _to_bytes, _write_bytes
+    from pymongocrypt.binary import MongoCryptBinaryIn
     from pymongocrypt.binding import ffi, lib
-    from pymongocrypt.crypto import aes_256_ctr_decrypt, aes_256_ctr_encrypt
+    from pymongocrypt.crypto import aes_256_ctr_encrypt
     import os
     _use_c = True
 except ImportError:
@@ -656,14 +655,14 @@ def _compress(
 _pack_encrypted_op_msg_header = struct.Struct("<iiiiii").pack
 _ENCRYPTION_HEADER_SIZE = 24
 
-def _encrypt_op_msg(
-    operation: int, data: bytes, 
-    # TODO<TW>: encryption param
+
+def _encrypt(
+    operation: int, data: bytes,
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
+    
     print("Attempting to encrypt data\n", data)
-
-    encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02')
+    encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
     iv = MongoCryptBinaryIn()
     input_data = MongoCryptBinaryIn(data)
     output_data = MongoCryptBinaryIn(b'1' * len(data))
@@ -683,9 +682,10 @@ def _encrypt_op_msg(
         0,  # responseTo
         2014,  # operation id
         operation,  # original operation id
-        len(encrypted_data),  # uncompressed message length
+        len(data),  # unencrypted message length
     )
     return request_id, header + encrypted_data
+
 
 _pack_header = struct.Struct("<iiii").pack
 
@@ -743,12 +743,10 @@ def _op_msg_encrypted(
     docs: Optional[list[Mapping[str, Any]]],
     opts: CodecOptions,
     original_operation: int,
-    # TODO<TW>: param for encryption settings
 ) -> tuple[int, bytes, int, int]:
     """Internal encrypted OP_MSG message helper."""
     msg, total_size, max_bson_size = _op_msg_no_header(flags, command, identifier, docs, opts)
-    # Note: 2014 is new opcode
-    rid, msg = _encrypt_op_msg(original_operation, msg)
+    rid, msg = _encrypt(original_operation, msg)
     return rid, msg, total_size, max_bson_size
 
 
@@ -808,9 +806,8 @@ def _op_msg(
         docs = None
     try:
         if should_encrypt_op_msg:
-            print("USING OP_ENCRYPTED")
-            # Note: pass in original op_code
-            return _op_msg_encrypted(flags, command, identifier, docs, opts, 2012 if ctx else 2013)
+            original_op_code = 2012 if ctx else 2013
+            return _op_msg_encrypted(flags, command, identifier, docs, opts, original_op_code)
         elif ctx:
             return _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
         return _op_msg_uncompressed(flags, command, identifier, docs, opts)

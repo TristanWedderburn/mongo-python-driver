@@ -692,7 +692,7 @@ class TestCollection(IntegrationTest):
         db.test.drop()
 
         document: dict[str, Any] = {"_id": 1000}
-        result = db.test.insert_one(document, should_encrypt_op_msg=True)
+        result = db.test.insert_one(document)
         self.assertTrue(isinstance(result, InsertOneResult))
         self.assertTrue(isinstance(result.inserted_id, int))
         self.assertEqual(document["_id"], result.inserted_id)

@@ -983,7 +983,6 @@ class Connection:
         if self.op_msg_enabled:
             self._raise_if_not_writable(unacknowledged)
         try:
-            # TODO<TW>: Add input param for using encryption here
             return command(
                 self,
                 dbname,
