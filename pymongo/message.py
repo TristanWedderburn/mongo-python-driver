@@ -48,12 +48,13 @@ from bson.raw_bson import (
     _inflate_bson,
 )
 
+from pymongocrypt.binary import MongoCryptBinaryIn
+from pymongocrypt.binding import ffi, lib
+from pymongocrypt.crypto import aes_256_ctr_encrypt
+import os
+
 try:
     from pymongo import _cmessage  # type: ignore[attr-defined]
-    from pymongocrypt.binary import MongoCryptBinaryIn
-    from pymongocrypt.binding import ffi, lib
-    from pymongocrypt.crypto import aes_256_ctr_encrypt
-    import os
     _use_c = True
 except ImportError:
     _use_c = False
@@ -657,34 +658,35 @@ _ENCRYPTION_HEADER_SIZE = 24
 
 
 def _encrypt(
-    operation: int, data: bytes,
+    original_operation: int, data: bytes, request_id: int
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
-    print("Attempting to encrypt data\n", data)
+    print("Attempting to encrypt data\n", data, len(data))
     encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
-    iv = MongoCryptBinaryIn()
+    iv = MongoCryptBinaryIn(os.urandom(16))
     input_data = MongoCryptBinaryIn(data)
-    output_data = MongoCryptBinaryIn(b'1' * len(data))
+    output_data = MongoCryptBinaryIn(b'1' * (len(data)))
     bytes_written = ffi.new("uint32_t *")
     status = lib.mongocrypt_status_new()
 
     aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
     encrypted_data = output_data.to_bytes()
-    print("ENCRYPTION OUTPUT\n", encrypted_data)
+    print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
 
-    request_id = _randint()
+    total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(encrypted_data)
+    print("total size\n", total_size)
 
     header = _pack_encrypted_op_msg_header(
-        _ENCRYPTION_HEADER_SIZE + len(encrypted_data),  # Total message length
+        total_size,  # Total message length
         request_id,  # Request id
         0,  # responseTo
         2014,  # operation id
-        operation,  # original operation id
-        len(data),  # unencrypted message length
+        original_operation,  # original operation id
+        16 + len(encrypted_data),  # unencrypted message length
     )
-    return request_id, header + encrypted_data
+    return total_size, header + iv.to_bytes() + encrypted_data
 
 
 _pack_header = struct.Struct("<iiii").pack
@@ -737,17 +739,13 @@ def _op_msg_no_header(
     return b"".join(data), total_size, max_doc_size
 
 def _op_msg_encrypted(
-    flags: int,
-    command: Mapping[str, Any],
-    identifier: str,
-    docs: Optional[list[Mapping[str, Any]]],
-    opts: CodecOptions,
+    rid: int,
     original_operation: int,
-) -> tuple[int, bytes, int, int]:
+    msg: bytes,
+) -> tuple[bytes, int]:
     """Internal encrypted OP_MSG message helper."""
-    msg, total_size, max_bson_size = _op_msg_no_header(flags, command, identifier, docs, opts)
-    rid, msg = _encrypt(original_operation, msg)
-    return rid, msg, total_size, max_bson_size
+    total_size, msg = _encrypt(original_operation, msg, rid)
+    return msg, total_size
 
 
 def _op_msg_compressed(
@@ -804,13 +802,23 @@ def _op_msg(
     except KeyError:
         identifier = ""
         docs = None
-    try:
+    try: 
+        # Generate the initial msg
+        if ctx:
+            rid, msg, total_size, max_bson_size = _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
+        else: 
+            rid, msg, total_size, max_bson_size = _op_msg_uncompressed(flags, command, identifier, docs, opts)
+        
+        # Encrypt msg, if needed
         if should_encrypt_op_msg:
+            print("Before encryption\n", rid, msg, total_size, max_bson_size)
+            print("flags\n", flags)
             original_op_code = 2012 if ctx else 2013
-            return _op_msg_encrypted(flags, command, identifier, docs, opts, original_op_code)
-        elif ctx:
-            return _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
-        return _op_msg_uncompressed(flags, command, identifier, docs, opts)
+            msg, total_size = _op_msg_encrypted(rid, original_op_code, msg)
+            print("After encryption\n", rid, msg, total_size, max_bson_size)
+        
+        print("Returning\n", rid, msg, total_size, max_bson_size)
+        return rid, msg, total_size, max_bson_size
     finally:
         # Add the field back to the command.
         if identifier:
@@ -1633,6 +1641,7 @@ class _OpReply:
             used for raising an informative exception when we get cursor id not
             valid at server response.
         """
+        print("OP_REPLY raw response\n", self.flags, self.documents)
         if self.flags & 1:
             # Shouldn't get this response if we aren't doing a getMore
             if cursor_id is None:
@@ -1687,8 +1696,10 @@ class _OpReply:
             using the TypeDecoders from codec_options, passed to
             bson._decode_all_selective.
         """
+        print("unpacking OP_REPLY\n", cursor_id)
         self.raw_response(cursor_id)
         if legacy_response:
+            print("legacy response\n")
             return bson.decode_all(self.documents, codec_options)
         return bson._decode_all_selective(self.documents, codec_options, user_fields)
 

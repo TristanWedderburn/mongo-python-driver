@@ -60,6 +60,9 @@ if TYPE_CHECKING:
     from pymongo.write_concern import WriteConcern
 
 from pymongocrypt.crypto import aes_256_ctr_decrypt
+from pymongocrypt.binary import MongoCryptBinaryIn
+from pymongocrypt.binding import ffi, lib
+import os
 
 _UNPACK_HEADER = struct.Struct("<iiii").unpack
 
@@ -156,11 +159,7 @@ def command(
             flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = should_encrypt_op_msg
         )
 
-        print("msg to send\n", msg) 
-
-        # Helper to verify serialization
-        if should_encrypt_op_msg:
-            opEncryptedHelper(msg)
+        print("msg to send includes\n", msg, size, max_doc_size)
 
         # If this is an unacknowledged write then make sure the encoded doc(s)
         # are small enough, otherwise rely on the server to return an error.
@@ -171,6 +170,7 @@ def command(
             0, ns, 0, -1, spec, None, codec_options, compression_ctx
         )
 
+    print("max_bson_size and size\n", max_bson_size, size)
     if max_bson_size is not None and size > max_bson_size + message._COMMAND_OVERHEAD:
         message._raise_document_too_large(name, size, max_bson_size + message._COMMAND_OVERHEAD)
     if client is not None:
@@ -213,6 +213,7 @@ def command(
             reply = receive_message(conn, request_id)
             print("reply\n", reply)
             conn.more_to_come = reply.more_to_come
+            print("more to come?\n", conn.more_to_come)
             unpacked_docs = reply.unpack_response(
                 codec_options=codec_options, user_fields=user_fields
             )
@@ -232,6 +233,7 @@ def command(
                     parse_write_concern_error=parse_write_concern_error,
                 )
     except Exception as exc:
+        print("Found exception\n", exc)
         duration = datetime.datetime.now() - start
         if isinstance(exc, (NotPrimaryError, OperationFailure)):
             failure: _DocumentOut = exc.details  # type: ignore[assignment]
@@ -315,23 +317,8 @@ def command(
 
 
 _UNPACK_COMPRESSION_HEADER = struct.Struct("<iiB").unpack
+# The encryption header contains two uint32 fields for the inner opcode and the unencrypted data size
 _UNPACK_ENCRYPTION_HEADER = struct.Struct("<ii").unpack
-
-
-def opEncryptedHelper(data: bytes):
-    print("START opEncryptedHelper\n")
-
-    length, _, response_to, op_code = _UNPACK_HEADER(data[0:16])
-    print("Helper found wrapper op_code\n", op_code)
-
-    original_op_code, _, encryption_key_id = _UNPACK_ENCRYPTION_HEADER(data[16:25])
-
-    print("Helper found original opcode and encryption key id\n",  original_op_code, encryption_key_id)
-
-    inner_data = data[25:length]
-
-    print("Helper found inner data\n", inner_data)
-    print("END opEncryptedHelper\n")
 
 
 def receive_message(
@@ -348,7 +335,8 @@ def receive_message(
             deadline = None
     # Ignore the response's request id.
     length, _, response_to, op_code = _UNPACK_HEADER(_receive_data_on_socket(conn, 16, deadline))
-    print("Found op_code in response\n", op_code)
+    print("Found op_code in response\n", length, response_to, op_code)
+    
     # No request_id for exhaust cursor "getMore".
     if request_id is not None:
         if request_id != response_to:
@@ -362,30 +350,56 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-    if op_code == 2012:
-        op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
-            _receive_data_on_socket(conn, 9, deadline)
-        )
-        data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
-    elif op_code == 2014:
-        op_code, _ = _UNPACK_ENCRYPTION_HEADER(
+
+    if op_code == 2014:
+        print("Entering decryption")
+        # Get inner msg's op code
+        op_code, unencrypted_data_size = _UNPACK_ENCRYPTION_HEADER(
             _receive_data_on_socket(conn, 8, deadline)
         )
-        input_buffer = _receive_data_on_socket(conn, length - 24, deadline)
+        print("original opcode, unencrypted size\n", op_code, unencrypted_data_size)
 
+        # TODO<TW>: Header data should include the IV bytes length
+        input_buffer = _receive_data_on_socket(conn, unencrypted_data_size, deadline)
+
+        # TODO<TW>: Hardcoded before key exchange is implemented
         encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
-        iv = MongoCryptBinaryIn()
-        input_data = MongoCryptBinaryIn(input_buffer)
-        output_data = MongoCryptBinaryIn(b'1' * len(input_buffer))
+        # The IV is first
+        iv = MongoCryptBinaryIn(input_buffer[:16])
+        print("iv\n", iv.to_bytes())
+        encrypted_data = input_buffer[16:]
+        print("encrypted data size\n", len(encrypted_data))
+        input_data = MongoCryptBinaryIn(encrypted_data)
+        output_data = MongoCryptBinaryIn(b'1' * len(encrypted_data))
         bytes_written = ffi.new("uint32_t *")
         status = lib.mongocrypt_status_new()
 
         aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
-        data = output_data.to_bytes()
-        print("DECRYPTION OUTPUT\n", encrypted_data)
+        print("decrypt status\n", lib.mongocrypt_status_code(status))
+        decrypted_data = output_data.to_bytes()
+        print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), op_code)
+
+        # Processes inner msg
+        if op_code == 2012:
+            # OP_COMPRESSED headers
+            length, _, response_to, op_code = _UNPACK_HEADER(decrypted_data[0:16])
+            print("original opcode 2, length\n", op_code, length)
+            op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
+                decrypted_data[16:25]
+            )
+            print("original opcode 3, compressor id\n", op_code, compressor_id)
+            data = decompress(decrypted_data[25:len(decrypted_data)], compressor_id)
+        else:
+            data = decrypted_data
     else:
-        data = _receive_data_on_socket(conn, length - 16, deadline)
+        if op_code == 2012:
+            op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
+                _receive_data_on_socket(conn, 9, deadline)
+            )
+            data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
+        else:
+            data = _receive_data_on_socket(conn, length - 16, deadline)
 
     try:
         unpack_reply = _UNPACK_REPLY[op_code]
