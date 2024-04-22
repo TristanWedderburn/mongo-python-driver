@@ -675,20 +675,8 @@ def _encrypt(
     encrypted_data = output_data.to_bytes()
     print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
 
-    # Verify encryption
-    input_data2 = MongoCryptBinaryIn(encrypted_data)
-    output_data2 = MongoCryptBinaryIn(b'1' * len(encrypted_data))
-    bytes_written2 = ffi.new("uint32_t *")
-    status2 = lib.mongocrypt_status_new()
-
-    aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data2.bin, output_data2.bin, bytes_written2, status2)
-
-    decrypted_data = output_data2.to_bytes()     
-    print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), decrypted_data == data)
 
     total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
-    print("total size\n", total_size)
-
     request_id = _randint()
 
     header = _pack_encrypted_op_msg_header(
@@ -712,7 +700,6 @@ def __pack_message(operation: int, data: bytes) -> tuple[int, bytes]:
     """
     rid = _randint()
     message = _pack_header(16 + len(data), rid, 0, operation)
-    print("packing message\n", 16 + len(data), rid, 0, operation)
     return rid, message + data
 
 
@@ -737,7 +724,6 @@ def _op_msg_no_header(
     # Encode the command document in payload 0 without checking keys.
     encoded = _dict_to_bson(command, False, opts)
     flags_type = _pack_op_msg_flags_type(flags, 0)
-    print("flags type\n", flags_type)
     total_size = len(encoded)
     max_doc_size = 0
     if identifier and docs is not None:
@@ -752,7 +738,6 @@ def _op_msg_no_header(
     else:
         data = [flags_type, encoded]
 
-    print("data before returning op msg no headers\n", data)
     return b"".join(data), total_size, max_doc_size
 
 def _op_msg_encrypted(
@@ -828,13 +813,12 @@ def _op_msg(
             rid, msg, total_size, max_bson_size = _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
         elif should_encrypt_op_msg: # Encrypt msg, if needed
             print("Before encryption\n")
-            original_op_code = 2012 if ctx else 2013
+            original_op_code = 2012 if ctx else 2013 # TODO<TW>: Encryption is only supported for uncompressed op msgs atm
             rid, msg, total_size, max_bson_size = _op_msg_encrypted(flags, command, identifier, docs, opts, original_op_code)
             print("After encryption\n", rid, msg, total_size, max_bson_size)
         else: 
             rid, msg, total_size, max_bson_size = _op_msg_uncompressed(flags, command, identifier, docs, opts)
         
-        print("Returning\n", rid, msg, total_size, max_bson_size)
         return rid, msg, total_size, max_bson_size
     finally:
         # Add the field back to the command.
@@ -1658,7 +1642,6 @@ class _OpReply:
             used for raising an informative exception when we get cursor id not
             valid at server response.
         """
-        print("OP_REPLY raw response\n", self.flags, self.documents)
         if self.flags & 1:
             # Shouldn't get this response if we aren't doing a getMore
             if cursor_id is None:
@@ -1713,10 +1696,8 @@ class _OpReply:
             using the TypeDecoders from codec_options, passed to
             bson._decode_all_selective.
         """
-        print("unpacking OP_REPLY\n", cursor_id)
         self.raw_response(cursor_id)
         if legacy_response:
-            print("legacy response\n")
             return bson.decode_all(self.documents, codec_options)
         return bson._decode_all_selective(self.documents, codec_options, user_fields)
 
