@@ -343,19 +343,16 @@ def receive_message(
             f"Message length ({length!r}) is larger than server max "
             f"message size ({max_message_size!r})"
         )
-
     if op_code == 2012:
         op_code, _, compressor_id = _UNPACK_COMPRESSION_HEADER(
             _receive_data_on_socket(conn, 9, deadline)
         )
         data = decompress(_receive_data_on_socket(conn, length - 25, deadline), compressor_id)
-    elif opcode == 2014:
-        print("Entering decryption")
+    elif op_code == 2014:
         # Get inner msg's op code
         op_code, unencrypted_data_size = _UNPACK_ENCRYPTION_HEADER(
             _receive_data_on_socket(conn, 8, deadline)
         )
-        print("original opcode, unencrypted size\n", op_code, unencrypted_data_size)
 
         # TODO<TW>: Header data should include the IV bytes length
         input_buffer = _receive_data_on_socket(conn, unencrypted_data_size, deadline)
@@ -365,7 +362,6 @@ def receive_message(
         # The IV is first
         iv = MongoCryptBinaryIn(input_buffer[:16])
         encrypted_data = input_buffer[16:]
-        print("encrypted data size\n", len(encrypted_data))
         input_data = MongoCryptBinaryIn(encrypted_data)
         output_data = MongoCryptBinaryIn(b'1' * len(encrypted_data))
         bytes_written = ffi.new("uint32_t *")
@@ -373,9 +369,8 @@ def receive_message(
 
         aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
-        print("decryption status\n", lib.mongocrypt_status_code(status))
         decrypted_data = output_data.to_bytes()
-        print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), op_code)
+        # print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), op_code)
 
         # Processes inner msg
         # TODO<TW>: Only uncompressed op msgs are supported atm
@@ -441,7 +436,6 @@ def _receive_data_on_socket(conn: Connection, length: int, deadline: Optional[fl
     bytes_read = 0
     while bytes_read < length:
         try:
-            print("waiting for read\n", bytes_read, length)
             wait_for_read(conn, deadline)
             # CSOT: Update timeout. When the timeout has expired perform one
             # final non-blocking recv. This helps avoid spurious timeouts when
@@ -450,15 +444,12 @@ def _receive_data_on_socket(conn: Connection, length: int, deadline: Optional[fl
                 conn.set_conn_timeout(max(deadline - time.monotonic(), 0))
             chunk_length = conn.conn.recv_into(mv[bytes_read:])
         except BLOCKING_IO_ERRORS:
-            print("blocking io\n")
             raise socket.timeout("timed out") from None
         except OSError as exc:
-            print("os error\n", exc)
             if _errno_from_exception(exc) == errno.EINTR:
                 continue
             raise
         if chunk_length == 0:
-            print("chunk is 0\n")
             raise OSError("connection closed")
 
         bytes_read += chunk_length

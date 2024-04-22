@@ -662,7 +662,7 @@ def _encrypt(
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
-    print("Attempting to encrypt data\n", data, len(data))
+    # print("Attempting to encrypt data\n", data, len(data))
     encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
     iv = MongoCryptBinaryIn(os.urandom(16))
     input_data = MongoCryptBinaryIn(data)
@@ -673,8 +673,7 @@ def _encrypt(
     aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
     encrypted_data = output_data.to_bytes()
-    print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
-
+    # print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
 
     total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
     request_id = _randint()
@@ -687,7 +686,7 @@ def _encrypt(
         original_operation,  # original operation id
         16 + len(data),  # unencrypted message length
     )
-    return total_size, header + iv.to_bytes() + encrypted_data
+    return request_id, header + iv.to_bytes() + encrypted_data
 
 
 _pack_header = struct.Struct("<iiii").pack
@@ -812,10 +811,8 @@ def _op_msg(
         if ctx:
             rid, msg, total_size, max_bson_size = _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
         elif should_encrypt_op_msg: # Encrypt msg, if needed
-            print("Before encryption\n")
             original_op_code = 2012 if ctx else 2013 # TODO<TW>: Encryption is only supported for uncompressed op msgs atm
             rid, msg, total_size, max_bson_size = _op_msg_encrypted(flags, command, identifier, docs, opts, original_op_code)
-            print("After encryption\n", rid, msg, total_size, max_bson_size)
         else: 
             rid, msg, total_size, max_bson_size = _op_msg_uncompressed(flags, command, identifier, docs, opts)
         
