@@ -50,7 +50,7 @@ from bson.raw_bson import (
 
 from pymongocrypt.binary import MongoCryptBinaryIn
 from pymongocrypt.binding import ffi, lib
-from pymongocrypt.crypto import aes_256_ctr_encrypt
+from pymongocrypt.crypto import aes_256_ctr_encrypt, aes_256_ctr_decrypt
 import os
 
 try:
@@ -658,7 +658,7 @@ _ENCRYPTION_HEADER_SIZE = 24
 
 
 def _encrypt(
-    original_operation: int, data: bytes, request_id: int
+    original_operation: int, data: bytes
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
@@ -675,8 +675,21 @@ def _encrypt(
     encrypted_data = output_data.to_bytes()
     print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
 
-    total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(encrypted_data)
+    # Verify encryption
+    input_data2 = MongoCryptBinaryIn(encrypted_data)
+    output_data2 = MongoCryptBinaryIn(b'1' * len(encrypted_data))
+    bytes_written2 = ffi.new("uint32_t *")
+    status2 = lib.mongocrypt_status_new()
+
+    aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data2.bin, output_data2.bin, bytes_written2, status2)
+
+    decrypted_data = output_data2.to_bytes()     
+    print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), decrypted_data == data)
+
+    total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
     print("total size\n", total_size)
+
+    request_id = _randint()
 
     header = _pack_encrypted_op_msg_header(
         total_size,  # Total message length
@@ -684,7 +697,7 @@ def _encrypt(
         0,  # responseTo
         2014,  # operation id
         original_operation,  # original operation id
-        16 + len(encrypted_data),  # unencrypted message length
+        16 + len(data),  # unencrypted message length
     )
     return total_size, header + iv.to_bytes() + encrypted_data
 
@@ -699,6 +712,7 @@ def __pack_message(operation: int, data: bytes) -> tuple[int, bytes]:
     """
     rid = _randint()
     message = _pack_header(16 + len(data), rid, 0, operation)
+    print("packing message\n", 16 + len(data), rid, 0, operation)
     return rid, message + data
 
 
@@ -723,6 +737,7 @@ def _op_msg_no_header(
     # Encode the command document in payload 0 without checking keys.
     encoded = _dict_to_bson(command, False, opts)
     flags_type = _pack_op_msg_flags_type(flags, 0)
+    print("flags type\n", flags_type)
     total_size = len(encoded)
     max_doc_size = 0
     if identifier and docs is not None:
@@ -736,16 +751,22 @@ def _op_msg_no_header(
         data = [flags_type, encoded, type_one, encoded_size, cstring, *encoded_docs]
     else:
         data = [flags_type, encoded]
+
+    print("data before returning op msg no headers\n", data)
     return b"".join(data), total_size, max_doc_size
 
 def _op_msg_encrypted(
-    rid: int,
-    original_operation: int,
-    msg: bytes,
-) -> tuple[bytes, int]:
+    flags: int,
+    command: Mapping[str, Any],
+    identifier: str,
+    docs: Optional[list[Mapping[str, Any]]],
+    opts: CodecOptions,
+    original_operation: int
+) -> tuple[int, bytes, int, int]:
     """Internal encrypted OP_MSG message helper."""
-    total_size, msg = _encrypt(original_operation, msg, rid)
-    return msg, total_size
+    data, total_size, max_bson_size = _op_msg_no_header(flags, command, identifier, docs, opts)
+    rid, msg = _encrypt(original_operation, data)
+    return rid, msg, total_size, max_bson_size
 
 
 def _op_msg_compressed(
@@ -803,19 +824,15 @@ def _op_msg(
         identifier = ""
         docs = None
     try: 
-        # Generate the initial msg
         if ctx:
             rid, msg, total_size, max_bson_size = _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
+        elif should_encrypt_op_msg: # Encrypt msg, if needed
+            print("Before encryption\n")
+            original_op_code = 2012 if ctx else 2013
+            rid, msg, total_size, max_bson_size = _op_msg_encrypted(flags, command, identifier, docs, opts, original_op_code)
+            print("After encryption\n", rid, msg, total_size, max_bson_size)
         else: 
             rid, msg, total_size, max_bson_size = _op_msg_uncompressed(flags, command, identifier, docs, opts)
-        
-        # Encrypt msg, if needed
-        if should_encrypt_op_msg:
-            print("Before encryption\n", rid, msg, total_size, max_bson_size)
-            print("flags\n", flags)
-            original_op_code = 2012 if ctx else 2013
-            msg, total_size = _op_msg_encrypted(rid, original_op_code, msg)
-            print("After encryption\n", rid, msg, total_size, max_bson_size)
         
         print("Returning\n", rid, msg, total_size, max_bson_size)
         return rid, msg, total_size, max_bson_size
