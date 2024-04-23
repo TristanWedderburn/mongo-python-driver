@@ -85,7 +85,6 @@ def command(
     parse_write_concern_error: bool = False,
     collation: Optional[_CollationIn] = None,
     compression_ctx: Union[SnappyContext, ZlibContext, ZstdContext, None] = None,
-    should_encrypt_op_msg: bool = False,
     use_op_msg: bool = False,
     unacknowledged: bool = False,
     user_fields: Optional[Mapping[str, Any]] = None,
@@ -156,7 +155,7 @@ def command(
         flags = _OpMsg.MORE_TO_COME if unacknowledged else 0
         flags |= _OpMsg.EXHAUST_ALLOWED if exhaust_allowed else 0
         request_id, msg, size, max_doc_size = message._op_msg(
-            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = should_encrypt_op_msg
+            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = client.op_encrypted
         )
 
         # If this is an unacknowledged write then make sure the encoded doc(s)

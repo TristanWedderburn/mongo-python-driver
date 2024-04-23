@@ -872,6 +872,9 @@ class MongoClient(common.BaseObject, Generic[_DocumentType]):
             self._encrypter = _Encrypter(self, self.__options.auto_encryption_opts)
         self._timeout = self.__options.timeout
 
+        # TODO<TW>: Read opencrypted option from MongoClient
+        self.op_encrypted = self.__options.op_encrypted
+
         if _HAS_REGISTER_AT_FORK:
             # Add this client to the list of weakly referenced items.
             # This will be used later if we fork.

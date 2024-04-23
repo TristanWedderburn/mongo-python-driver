@@ -941,7 +941,6 @@ class Connection:
         publish_events: bool = True,
         user_fields: Optional[Mapping[str, Any]] = None,
         exhaust_allowed: bool = False,
-        should_encrypt_op_msg: bool = False,
     ) -> dict[str, Any]:
         """Execute a command or raise an error.
 
@@ -1006,7 +1005,6 @@ class Connection:
                 user_fields=user_fields,
                 exhaust_allowed=exhaust_allowed,
                 write_concern=write_concern,
-                should_encrypt_op_msg=should_encrypt_op_msg
             )
         except (OperationFailure, NotPrimaryError):
             raise

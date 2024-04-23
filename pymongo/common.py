@@ -704,6 +704,7 @@ URI_OPTIONS_VALIDATOR_MAP: dict[str, Callable[[Any, Any], Any]] = {
     "retryreads": validate_boolean_or_string,
     "retrywrites": validate_boolean_or_string,
     "loadbalanced": validate_boolean_or_string,
+    "opencrypted": validate_boolean_or_string,
     "serverselectiontimeoutms": validate_timeout_or_zero,
     "sockettimeoutms": validate_timeout_or_none_or_zero,
     "tls": validate_boolean_or_string,

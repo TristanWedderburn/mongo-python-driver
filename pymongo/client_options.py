@@ -217,6 +217,7 @@ class ClientOptions:
         self.__server_monitoring_mode = options.get(
             "servermonitoringmode", common.SERVER_MONITORING_MODE
         )
+        self.__op_encrypted = options.get("opencrypted")
 
     @property
     def _options(self) -> Mapping[str, Any]:
@@ -309,6 +310,11 @@ class ClientOptions:
     def load_balanced(self) -> Optional[bool]:
         """True if the client was configured to connect to a load balancer."""
         return self.__load_balanced
+
+    @property
+    def op_encrypted(self) -> Optional[bool]:
+        """True if the client was configured to use op_encrypted."""
+        return self.__op_encrypted
 
     @property
     def event_listeners(self) -> list[_EventListeners]:
