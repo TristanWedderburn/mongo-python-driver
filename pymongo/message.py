@@ -662,7 +662,6 @@ def _encrypt(
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
-    # print("Attempting to encrypt data\n", data, len(data))
     encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
     iv = MongoCryptBinaryIn(os.urandom(16))
     input_data = MongoCryptBinaryIn(data)
@@ -673,7 +672,6 @@ def _encrypt(
     aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
     encrypted_data = output_data.to_bytes()
-    # print("ENCRYPTION OUTPUT\n", encrypted_data, len(encrypted_data))
 
     total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
     request_id = _randint()

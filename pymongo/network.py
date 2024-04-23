@@ -206,7 +206,6 @@ def command(
             reply = None
             response_doc: _DocumentOut = {"ok": 1}
         else:
-            print("receive_message\n")
             reply = receive_message(conn, request_id)
             conn.more_to_come = reply.more_to_come
             unpacked_docs = reply.unpack_response(
@@ -215,10 +214,8 @@ def command(
 
             response_doc = unpacked_docs[0]
             if client:
-                print("client seen\n")
                 client._process_response(response_doc, session)
             if check:
-                print("check?\n")
                 helpers._check_command_response(
                     response_doc,
                     conn.max_wire_version,
@@ -226,7 +223,6 @@ def command(
                     parse_write_concern_error=parse_write_concern_error,
                 )
     except Exception as exc:
-        print("Found exception\n", exc)
         duration = datetime.datetime.now() - start
         if isinstance(exc, (NotPrimaryError, OperationFailure)):
             failure: _DocumentOut = exc.details  # type: ignore[assignment]
@@ -328,7 +324,6 @@ def receive_message(
             deadline = None
     # Ignore the response's request id.
     length, _, response_to, op_code = _UNPACK_HEADER(_receive_data_on_socket(conn, 16, deadline))
-    print("Found op_code in response\n", length, response_to, op_code)
     
     # No request_id for exhaust cursor "getMore".
     if request_id is not None:
@@ -370,7 +365,6 @@ def receive_message(
         aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
 
         decrypted_data = output_data.to_bytes()
-        # print("DECRYPTION OUTPUT\n", decrypted_data, len(decrypted_data), op_code)
 
         # Processes inner msg
         # TODO<TW>: Only uncompressed op msgs are supported atm
