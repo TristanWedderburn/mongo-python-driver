@@ -807,13 +807,11 @@ def _op_msg(
         docs = None
     try: 
         if ctx:
-            rid, msg, total_size, max_bson_size = _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
+            return _op_msg_compressed(flags, command, identifier, docs, opts, ctx)
         elif should_encrypt_op_msg: # Encrypt msg, if needed
-            rid, msg, total_size, max_bson_size = _op_msg_encrypted(flags, command, identifier, docs, opts)
-        else: 
-            rid, msg, total_size, max_bson_size = _op_msg_uncompressed(flags, command, identifier, docs, opts)
-        
-        return rid, msg, total_size, max_bson_size
+            return _op_msg_encrypted(flags, command, identifier, docs, opts)
+        else:
+            return _op_msg_uncompressed(flags, command, identifier, docs, opts)
     finally:
         # Add the field back to the command.
         if identifier:

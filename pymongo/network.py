@@ -155,7 +155,7 @@ def command(
         flags = _OpMsg.MORE_TO_COME if unacknowledged else 0
         flags |= _OpMsg.EXHAUST_ALLOWED if exhaust_allowed else 0
         request_id, msg, size, max_doc_size = message._op_msg(
-            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = client.op_encrypted
+            flags, spec, dbname, read_preference, codec_options, ctx=compression_ctx, should_encrypt_op_msg = client and client.op_encrypted
         )
 
         # If this is an unacknowledged write then make sure the encoded doc(s)
@@ -323,7 +323,6 @@ def receive_message(
             deadline = None
     # Ignore the response's request id.
     length, _, response_to, op_code = _UNPACK_HEADER(_receive_data_on_socket(conn, 16, deadline))
-    
     # No request_id for exhaust cursor "getMore".
     if request_id is not None:
         if request_id != response_to:
