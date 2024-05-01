@@ -66,6 +66,9 @@ import os
 
 _UNPACK_HEADER = struct.Struct("<iiii").unpack
 
+_SYMMETRIC_KEY = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
+BYTES_WRITTEN = ffi.new("uint32_t *")
+MONGOCRYPT_STATUS = lib.mongocrypt_status_new()
 
 def command(
     conn: Connection,
@@ -351,25 +354,20 @@ def receive_message(
         input_buffer = _receive_data_on_socket(conn, unencrypted_data_size, deadline)
 
         # TODO<TW>: Hardcoded before key exchange is implemented
-        encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
         # The IV is first
         iv = MongoCryptBinaryIn(input_buffer[:16])
         encrypted_data = input_buffer[16:]
         input_data = MongoCryptBinaryIn(encrypted_data)
         output_data = MongoCryptBinaryIn(b'1' * len(encrypted_data))
-        bytes_written = ffi.new("uint32_t *")
-        status = lib.mongocrypt_status_new()
 
-        aes_256_ctr_decrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
-
-        decrypted_data = output_data.to_bytes()
+        aes_256_ctr_decrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
 
         # Processes inner msg
         # TODO<TW>: Only uncompressed op msgs are supported atm
         if op_code == 2012:
             print("Compression not supported with encryption yet\n")
         else:
-            data = decrypted_data
+            data = output_data.to_bytes()
     else:
         data = _receive_data_on_socket(conn, length - 16, deadline)
 

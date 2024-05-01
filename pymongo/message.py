@@ -114,6 +114,8 @@ _UNICODE_REPLACE_CODEC_OPTIONS: CodecOptions[Mapping[str, Any]] = CodecOptions(
     unicode_decode_error_handler="replace"
 )
 
+_SYMMETRIC_KEY = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
+
 
 def _randint() -> int:
     """Generate a pseudo random 32 bit integer."""
@@ -656,20 +658,20 @@ def _compress(
 _pack_encrypted_op_msg_header = struct.Struct("<iiiiii").pack
 _ENCRYPTION_HEADER_SIZE = 24
 
+BYTES_WRITTEN = ffi.new("uint32_t *")
+MONGOCRYPT_STATUS = lib.mongocrypt_status_new()
+
 
 def _encrypt(
     original_operation: int, data: bytes
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
-    encryption_key = MongoCryptBinaryIn(b'\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02\x02')
     iv = MongoCryptBinaryIn(os.urandom(16))
     input_data = MongoCryptBinaryIn(data)
     output_data = MongoCryptBinaryIn(b'1' * (len(data)))
-    bytes_written = ffi.new("uint32_t *")
-    status = lib.mongocrypt_status_new()
 
-    aes_256_ctr_encrypt(ffi.NULL, encryption_key.bin, iv.bin, input_data.bin, output_data.bin, bytes_written, status)
+    aes_256_ctr_encrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
 
     encrypted_data = output_data.to_bytes()
 
