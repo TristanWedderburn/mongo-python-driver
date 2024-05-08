@@ -355,19 +355,16 @@ def receive_message(
 
         # TODO<TW>: Hardcoded before key exchange is implemented
         # The IV is first
-        iv = MongoCryptBinaryIn(input_buffer[:16])
-        encrypted_data = input_buffer[16:]
-        input_data = MongoCryptBinaryIn(encrypted_data)
-        output_data = MongoCryptBinaryIn(b'1' * len(encrypted_data))
+        with MongoCryptBinaryIn(input_buffer[:16]) as iv, input_buffer[16:] as encrypted_data, MongoCryptBinaryIn(encrypted_data) as input_data, MongoCryptBinaryIn(b'1' * len(encrypted_data)) as output_data:
+            aes_256_ctr_decrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
 
-        aes_256_ctr_decrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
+            # Processes inner msg
+            # TODO<TW>: Only uncompressed op msgs are supported atm
+            if op_code == 2012:
+                print("Compression not supported with encryption yet\n")
+            else:
+                data = output_data.to_bytes()
 
-        # Processes inner msg
-        # TODO<TW>: Only uncompressed op msgs are supported atm
-        if op_code == 2012:
-            print("Compression not supported with encryption yet\n")
-        else:
-            data = output_data.to_bytes()
     else:
         data = _receive_data_on_socket(conn, length - 16, deadline)
 

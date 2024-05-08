@@ -667,27 +667,23 @@ def _encrypt(
 ) -> tuple[int, bytes]:
     """Takes message data, encrypts it, and adds an OP_ENCRYPTED header."""
     
-    iv = MongoCryptBinaryIn(os.urandom(16))
-    input_data = MongoCryptBinaryIn(data)
-    output_data = MongoCryptBinaryIn(b'1' * (len(data)))
+    with MongoCryptBinaryIn(os.urandom(16)) as iv, MongoCryptBinaryIn(data) as input_data, MongoCryptBinaryIn(b'1' * (len(data))) as output_data:
+        aes_256_ctr_encrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
 
-    aes_256_ctr_encrypt(ffi.NULL, _SYMMETRIC_KEY.bin, iv.bin, input_data.bin, output_data.bin, BYTES_WRITTEN, MONGOCRYPT_STATUS)
+        encrypted_data = output_data.to_bytes()
 
-    encrypted_data = output_data.to_bytes()
+        total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
+        request_id = _randint()
 
-    total_size = _ENCRYPTION_HEADER_SIZE + 16 + len(data)
-    request_id = _randint()
-
-    header = _pack_encrypted_op_msg_header(
-        total_size,  # Total message length
-        request_id,  # Request id
-        0,  # responseTo
-        2014,  # operation id
-        original_operation,  # original operation id
-        16 + len(data),  # unencrypted message length
-    )
-    return request_id, header + iv.to_bytes() + encrypted_data
-
+        header = _pack_encrypted_op_msg_header(
+            total_size,  # Total message length
+            request_id,  # Request id
+            0,  # responseTo
+            2014,  # operation id
+            original_operation,  # original operation id
+            16 + len(data),  # unencrypted message length
+        )
+        return request_id, header + iv.to_bytes() + encrypted_data
 
 _pack_header = struct.Struct("<iiii").pack
 
